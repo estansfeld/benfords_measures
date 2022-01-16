@@ -1,0 +1,108 @@
+---
+title: "Benford's Project"
+subtitle: "Figure 2: SIR model"
+author: "Edward Stansfeld"
+date: "January 2022"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = F, tidy = T, include=FALSE)
+library(here)
+library(data.table)
+library(ggplot2)
+library(benford.analysis)
+library(stringr)
+
+set.seed(999)
+repetitions <- 200
+
+source(here("benfords", "distributions.R"))
+source(here("benfords", "tests.R"))
+source(here("benfords", "plots.R"))
+
+```
+
+
+## Introduction
+We need to establish whether case numbers in an epidemic can follow Benford's distribution. Epidemics are known to proceed exponentially, though they may also have periods of stasis where the incidence of infection and transmission is low.  This would seem to suggest that some of the time, the logarithmic requirement is present. To test whether daily cases might be expected to follow Benford's Law, a compartmental model was constructed, following the method of Kermack and McKendrick (1927), as modified by Romero (2016). This simple population model introduces an infection and tracks the number of individuals over time who are susceptible, infected and recovered. As can be seen from the graph below, the number of daily infections does follow Benford's Law, though with a tendency to report more "1"s and "2", probably due to the stasis effect.
+
+.
+
+``` {r  SIR_model}
+library(pracma)
+library(deSolve)
+
+# sir_model returns a plot object and a data.table object
+# these show the daily totals for susceptible, infected and recovered in the population
+sir_model <- function(transmission_rate, recovery_rate, Susceptible0, Infected0, Recovered0) {
+  
+  # solve the system dy/dt = f(y, t)
+  SIR_equation <- function(Time, State, Parameters) {
+    with(as.list(c(State, Parameters)), {
+      # the model equations Kermack, W. and McKendrick, A. (1927) 
+       # -p["b"]*y["S"]*y["I"]
+      dSusceptibles = floor(- transmission_rate * Susceptible * Infected) 
+      # p["b"]*y["S"]*y["I"]-p["k"]*y["I"]
+      dInfected = ceiling(transmission_rate * Susceptible * Infected - recovery_rate * Infected)    
+      # p["k"]*y["I"]
+      dRecovered = trunc(recovery_rate * Infected)  
+      return(list(c(dSusceptibles, dInfected, dRecovered))) 
+    }) 
+  }
+  
+  starting_population <- c(Susceptible = Susceptible0, Infected = Infected0, Recovered = Recovered0)     # initial condition vector
+  
+  linear_sequence  = linspace(0, 1000, 1000)         # time grid
+  parameters = c(transmission_rate, recovery_rate)
+  # solve the DEs
+  soln = as.data.table(ode(y = starting_population, times = linear_sequence, func = SIR_equation, parms = parameters))
+  sir_data = melt(soln, id.vars = "time", variable.name = "Category", value.name = "Number")
+  
+  results <- list()
+  results$data <- sir_data
+  
+  # plot results
+  results$plot <- ggplot(sir_data, aes(x = time, y = Number, group = Category, col = Category)) +
+    geom_line() +
+    xlab("Days from first case") +
+    ylab('Population') +
+    ggtitle('Compartmental model of a flu outbreak')
+  
+  return(results)
+}
+
+# initial conditions
+Susceptible0 <- 1000000              # initial population
+Infected0 <- 5                 # initial infected population
+Recovered0 <- 0                 # initial cured population
+
+transmission_rate = 1 / (20* Susceptible0)  # beta, the the percentage of cases from the overall susceptible and infected populations that effectively result in an infection
+recovery_rate = 0.01  # k, the recovery rate
+
+sir <-sir_model(transmission_rate, recovery_rate, Susceptible0, Infected0, Recovered0)
+
+infected <- sir$data[Category == "Susceptible"][, Infected:=as.integer(Susceptible0 - Number)]
+daily_infections <- infected[j = .(daily = diff(Infected))]
+
+sir_bfd <- plot_benford_leading(benford(daily_infections$daily,1)$data$data.digits, test.type = "First Digit", title = "SIR Model: Daily Infections", subtitle = "First Digit", test_overBenford = F, test_BREG = F, test_Kuiper = F)
+
+```
+
+``` {r sir_plot, include = T, echo = F, fig.height = 3, fig.width = 10}
+# plot
+library(patchwork)
+wrap_plots(plotlist = list(sir$plot, sir_bfd$plot), ncol = 2, nrow = 1)
+
+```
+
+## Conclusion
+It was established that the pandemic dataset is expected to follow Benford's Law for natural data, because of the exponential way in which an epidemic spreads. 
+
+
+## References
+Kermack, W. and McKendrick, A. (1927) ‘A Contribution to the Mathematical Theory of Epidemics on JSTOR’, Proceedings of the Royal Society of London. Series A, Containing Papers of a Mathematical and Physical Character, 115(772), pp. 700–721. Available at: https://www.jstor.org/stable/94815 (Accessed: 5 July 2021).
+
+Romero, J. (2016) Simulation models of epidemics using R and simecol, R Bloggers. Available at: https://www.r-bloggers.com/2016/08/simulation-models-of-epidemics-using-r-and-simecol/ (Accessed: 13 November 2021).
+
+

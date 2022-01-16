@@ -1,0 +1,326 @@
+---
+title: "Benford's Project"
+subtitle: "Figs 5,6,8,9,10: Summary Charts"
+author: "Edward Stansfeld"
+date: "January 2022"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = F, tidy = T, include=FALSE)
+library(here)
+library(data.table)
+library(ggplot2)
+library(benford.analysis)
+library(stringr)
+
+set.seed(999)
+repetitions <- 200
+
+source(here("etl", "load_transform_india_and_scotland.R"))
+source(here("benfords", "distributions.R"))
+source(here("benfords", "tests.R"))
+source(here("benfords", "plots.R"))
+
+```
+
+
+## Introduction
+The India data contain 36 sets of regional data, each containing around 500 records, and the Scotland 14 sets of regional data. This paper focuses on the properties of the datasets for confirmed cases, deaths and recoveries. The distributions are plotted for each region and indicative statistics are calculated. 
+
+
+``` {r regional}
+
+### function for checking the distribution of the mantissae
+library(dplyr)
+
+plots <-list()
+
+theBenford <- data.table(region = character(), 
+                         dataset = character(),
+                         test = character(),
+                         total = numeric(),
+                         range = numeric(),
+                         mantissa_difference = numeric(),
+                         oom_10 = numeric(),
+                         oom_5 = numeric(),
+                         oom_naive= numeric(),
+                         ES12 = numeric(),
+                         Nigrini = character(), 
+                         MAD = numeric(), 
+                         Kossovsky = character(), 
+                         SSD = numeric(),
+                         Chi.squared = numeric(),
+                         n = integer(),
+                         df = integer(),
+                         p = numeric(),
+                         kuiper.result = character(),
+                         kuiper.p = numeric(),
+                         overBenford.result = character(),
+                         overBenford.p = numeric(),
+                         BREG_verdict = character(),
+                         BREG_output = character(),
+                         BREG_ideal = character(),
+                         BREG_bootstrap_CI = character(), 
+                         BREG_benford_CI = character())
+
+
+for(state_name in 1:nrow(india_states)) {
+  data <- india_daily_cases[india_states[state_name]]
+  identifier <- dplyr::pull(india_states[state_name])
+  
+# summarise daily_cases by order of magnitude
+# scotland_confirmed_range <- scotland_confirmed_cases[j= .(.N), by = .(magnitude_confirmed)]
+# scotland_deaths_range <- scotland_weekly_deaths[j= .(.N), by = .(magnitude_deaths)]
+
+data_confirmed_range <- data[j= .(.N), by = .(magnitude_confirmed)]
+data_deaths_range <- data[j= .(.N), by = .(magnitude_deaths)]
+data_cured_range <- data[j= .(.N), by = .(magnitude_cured)]
+
+  line_confirmed <- ggplot(data[,confirmed:=sum(confirmed), by = .(Date)], aes(x = Date, y = confirmed)) + geom_smooth(span = 0.2, col = "black", method = "loess") + labs(title = identifier, subtitle = "Confirmed Cases") + scale_y_log10()
+  
+  line_deaths <- ggplot(data[,deaths:=sum(deaths), by = .(Date)], aes(x = Date, y = deaths)) + geom_smooth(span = 0.2, col = "black", method = "loess", formula = y ~ x) + labs(subtitle = "Deaths") + scale_y_log10()
+  
+  line_cured <- ggplot(data[,cured:=sum(cured), by = .(Date)], aes(x = Date, y = cured)) + geom_smooth(span = 0.2, col = "black", method = "loess", formula = y ~ x) + labs(subtitle="Recovered") + scale_y_log10()
+  
+  mantissa_confirmed <- plot_mantissae(data$confirmed, title = "")
+  mantissa_deaths <- plot_mantissae(data$deaths, title = "") 
+  mantissa_cured <- plot_mantissae(data$cured, title = "") 
+  
+  # graph cases by order of magnitude
+  magnitude_confirmed <- ggplot(data_confirmed_range[magnitude_confirmed>=0],aes(x= as.factor(magnitude_confirmed), y = N)) + geom_col() + xlab("Order of Magnitude") + ylab("Records") + ggtitle("")
+  
+  magnitude_deaths <- ggplot(data_deaths_range[magnitude_deaths>=0],  aes(x= as.factor(magnitude_deaths), y = N)) + geom_col() + xlab("Order of Magnitude") + ylab("Records") + ggtitle("")
+  
+  magnitude_cured <- ggplot(data_cured_range[magnitude_cured>=0],  aes(x= as.factor(magnitude_cured), y = N)) + geom_col() + xlab("Order of Magnitude") + ylab("Records") + ggtitle("")
+  
+  benford_confirmed <- plot_benford_leading_extreme(data$confirmed, 
+    test.type = "First Digit", 
+    subtitle = pull(india_states[state_name]),
+    variable = "Confirmed", test_overBenford = F, test_BREG = F)
+  
+  benford_deaths <- plot_benford_leading_extreme(data$deaths, 
+    test.type = "First Digit", 
+    variable = "Deaths", test_overBenford = F, test_BREG = F)
+   
+  benford_cured <- plot_benford_leading_extreme(data$cured, 
+    test.type = "First Digit", 
+    variable = "Cured", test_overBenford = F, test_BREG = F)
+  
+
+  last_one_confirmed <- plot_last_one(data[magnitude_confirmed >1]$confirmed, variable = "Confirmed",magnitude_range = max(data$magnitude_confirmed, na.rm = T), subtitle = "")
+  
+  last_one_deaths <- plot_last_one(data[magnitude_deaths >1]$deaths, variable = "Deaths", magnitude_range = max(data$magnitude_deaths, na.rm = T), subtitle = "")
+  
+  last_one_cured <- plot_last_one(data[magnitude_cured >1]$cured, variable = "Recovered",magnitude_range = max(data$magnitude_cured, na.rm = T),subtitle = "")
+  
+
+  theBenford <- rbindlist(list(theBenford, benford_confirmed$stats, benford_deaths$stats, benford_cured$stats))
+}
+
+scot_plots <-list()
+
+for(region in 1:nrow(scotland_state)) {
+  identifier <- pull(scotland_state[region])
+  deaths <- scotland_weekly_deaths[region == identifier]
+  tests <- MIS_pos_test[region == identifier]
+  
+  data_confirmed_range <- tests[j= .(.N), by = .(magnitude_positive)]
+  data_deaths_range <- deaths[j= .(.N), by = .(magnitude_deaths)]
+
+  line_confirmed <- ggplot(tests[,positive:=sum(positive), by = .(date)], aes(x = date, y = positive)) + geom_smooth(span = 0.2, col = "black", method = "loess") + labs(title = identifier, subtitle = "Confirmed Cases") + scale_y_log10()
+  
+  line_deaths <- ggplot(deaths[,deaths:=sum(deaths), by = .(Date)], aes(x = Date, y = deaths)) + geom_smooth(span = 0.2, col = "black", method = "loess") + labs(subtitle = "Deaths") + scale_y_log10()
+  
+  mantissa_confirmed <- plot_mantissae(tests$positive, title = "")
+  mantissa_deaths <- plot_mantissae(deaths$deaths, title = "") 
+
+  # graph cases by order of magnitude
+  magnitude_confirmed <- ggplot(data_confirmed_range[magnitude_positive>=0], aes(x= as.factor(magnitude_positive), y = N)) + geom_col() + xlab("Order of Magnitude") + ylab("Records")
+  
+  magnitude_deaths <- ggplot(data_deaths_range[magnitude_deaths>=0], aes(x= as.factor(magnitude_deaths), y = N)) + geom_col() + xlab("Order of Magnitude") + ylab("Records")
+  
+  benford_confirmed <- plot_benford_leading_extreme(tests$positive, 
+                                    test.type = "First Digit", 
+                                    subtitle = identifier,
+                                    variable = "Confirmed", test_overBenford = F, test_BREG= F)
+  
+  benford_deaths <- plot_benford_leading_extreme(deaths$deaths, 
+                                 test.type = "First Digit", 
+                                 subtitle = identifier,
+                                 variable = "Deaths", test_overBenford = F, test_BREG= F)
+   
+  last_one_confirmed <- plot_last_one(tests[magnitude_positive >1]$positive, variable = "Confirmed", magnitude_range = max(tests$magnitude_positive, na.rm = T),subtitle = "")
+  
+  last_one_deaths <- plot_last_one(deaths[magnitude_deaths >1]$deaths, variable = "Deaths", magnitude_range = max(deaths$magnitude_deaths, na.rm = T), subtitle = "")
+  
+
+  theBenford <- rbindlist(list(theBenford, benford_confirmed$stats, benford_deaths$stats))
+}
+  
+saveRDS(theBenford, file="theKuiper.RDS")
+
+
+theBenford <- theBenford[region=="", region:=NA][j=region:=zoo::na.locf(region)][1:108,country:="India"][is.na(country), j= country:="Scotland"]
+
+theBenford_prepped <- theBenford[j= .(
+  country, region, dataset=as.factor(dataset), n, range, BREG_output, SSD, MAD,Chi.squared, p, oom_10, oom_5, oom_naive,ES12,mantissa_difference,
+  MAD_conforms=fifelse(Nigrini == "Nonconformity", 0, 1),
+  SSD_conforms=fifelse(Kossovsky == "Non Benford", 0, 1), 
+  Chi.sq_conforms=fifelse(p<0.05, 0, 1),
+  kuiper_conforms=fifelse(kuiper.result=="Rejected", 0, 1),
+  BREG_conforms=fifelse(BREG_verdict!="Accepted" | is.na(BREG_verdict), 0, 1),
+  overB_conforms=fifelse(overBenford.result=="Rejected", 0, 1),  
+  kuiper.p=as.double(str_trim(str_remove_all(kuiper.p, "\\*"))),
+  overBenford.p=as.double(str_trim(str_remove_all(overBenford.p, "\\*")))
+  )][
+    j = overall_score:=MAD_conforms+SSD_conforms+kuiper_conforms+BREG_conforms+overB_conforms
+  ][
+    j=oom_skew:=oom_10/oom_naive
+  ]
+theBenford_fails <- theBenford_prepped[kuiper_conforms!=1 | is.na(kuiper_conforms)]  
+theBenford_passes <- theBenford_prepped[kuiper_conforms==1]  
+theResults <- theBenford[
+  j = .(test, country, region, dataset, range, n, 
+        MAD=fifelse(Nigrini == "Nonconformity", "Rejected", "Accepted"), 
+        SSD=fifelse(Kossovsky == "Non Benford", "Rejected", "Accepted"), 
+        Chi_Squared=fifelse(p>0.05, "Accepted", "Rejected"), 
+        Kuiper=kuiper.result, 
+        overBenford=overBenford.result, 
+        BREG_verdict = fifelse(BREG_verdict == "Conformant", "Accepted", "Rejected"))
+  ]
+long_results <- melt(theResults, id.vars=c("test", "country", "region", "dataset", "range", "n"))
+fig_13_results <- long_results[value == "Accepted",.(count = .N), by=.(test, variable, country, dataset)]
+fig_13_totals <- fig_13_results[, .(count = sum(count)), by = .(test, variable)]
+
+```
+
+## Results
+
+As shown in Appendix 1, the state results have a wide variety, though most are clearly conformant over the leading digits, especially among the confirmed and cured cases. There are some notable exceptions; Jammu and Kashmir have a distribution that has uniform features (but passes Kossovsky's test) and Tamil Nadu and Uttarakhand have a disproportionate number of "4"s and 5"s. West Bengal has a strange two-layered uniform distribution. 
+
+The deaths data has a more limited range and there is a tendency for the Benford's extreme distribution to appear. The Benford's extreme distribution is associated with digital progression (Kossovsky 2019).  In digital progression, when the logs of sampled data covering several orders of magnitude are binned, they should approximate to a normal distribution. The rising end of the distribution tends to digital equality, whereas the falling end tends to Benford's extreme. In the state deaths data, many of the magnitude plots have a sharply right-skewed distribution, and this is a predictor that the Benford's distribution will be extreme. 
+
+The last digit results also have a wide variety, and most of them look conformant. The deaths plots are much affected by the limited range and in several cases, the last digit distributions are more like first digit distributions. This would seem to be a digital progression effect, with the high end effect dominant over the low end. 
+
+
+## Conclusion
+The state-level data has a wide range of results, with most passing at least one of the tests for Benford's conformance. There are also some that appear anomalous, in particular West Bengal, Uttarkhand and Tamil Nadu, which performed strangely in the leading digit tests. Visual inspection showed that some of the deaths graphs have the "Benford's extreme" profile of more low digits than expected. It is particularly common with datasets that have a limited range of just one or two orders of magnitude. A Benford's extreme profile is associated with digital progression and is caused by a reducing number of data points as the log of the data increases.
+
+
+## References
+
+Breiman L., Friedman J. H., Olshen R. A., and Stone, C. J. (1984) Classification and Regression Trees. Wadsworth
+
+Kossovsky, A. E. (2014) Benford’s Law: Theory, The General Law Of Relative Quantities, And Forensic Fraud Detection Applications. New Jersey: World Scientific. Available at: https://web-b-ebscohost-com.libezproxy.dundee.ac.uk/ehost/ebookviewer/ebook/ZTAwMHh3d19fODM5NjQ0X19BTg2?sid=0ce4142b-5c35-4f8c-844d-1030e6c91e4f%40pdc-v-sessmgr02&vid=0&format=EK&rid=1 (Accessed: 29 August 2021).
+
+Kossovsky, A. E. (2019) ‘The General Law of Relative Quantities and Digital Development Forensics’, in Benford’s Law Conference, Stresa, Italy. Available at: https://ec.europa.eu/jrc/en/event/workshop/benfords-law-conference (Accessed: 29 August 2021).
+
+Kossovsky, A. E. (2021) ‘On the Mistaken Use of the Chi-Square Test in Benford’s Law’, Stats 2021, Vol. 4, Pages 419-453, 4(2), pp. 419–453. doi: 10.3390/STATS4020027.
+
+Nigrini, M. (2012) Benford’s Law: Applications for Forensic Accounting, Auditing, and Fraud ... - Mark J. Nigrini - Google Books. Available at: https://books.google.co.uk/books?hl=en&lr=&id=Bh5Vr_I1NZoC&oi=fnd&pg=PP11&ots=qcigiizrOi&sig=Zyv0EV3snhVKH3yOC9z117ieSlI&redir_esc=y#v=onepage&q&f=false (Accessed: 11 August 2021).
+
+
+
+## Appendix 1
+### Plots of mantissa, magnitudes, Benford's first digit and last digits for confirmed cases, deaths and cured of daily Covid returns from Indian states.
+
+``` {r india_plot, include = T, echo = F, fig.height = 14, fig.width = 10}
+# plot
+library(patchwork)
+state_summary <- list()
+k = 0
+graphs_per_plot <- 18
+# we want 18 graphs on each plot
+for (i in seq(0, length(plots) - graphs_per_plot, by = graphs_per_plot)) {
+  k = k + 1
+  state_graphs <- list()
+  for (j in 1:graphs_per_plot) {
+    state_graphs[[j]] <- plots[[i+j]]
+  }
+  state_summary[[k]] <- state_graphs
+}
+# make the plot grid
+cols = 3
+rows = 6
+# the number of plot pages is the number of regions or states
+
+suppressWarnings(wrap_plots(plotlist = state_summary[[1]], ncol = cols, nrow = rows)  )
+suppressWarnings(wrap_plots(plotlist = state_summary[[1]], ncol = cols, nrow = rows) )
+suppressWarnings(wrap_plots(plotlist = state_summary[[2]], ncol = cols, nrow = rows)  )
+suppressWarnings(wrap_plots(plotlist = state_summary[[3]], ncol = cols, nrow = rows)  )
+suppressWarnings(wrap_plots(plotlist = state_summary[[4]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[5]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[6]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[7]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[8]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[9]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[10]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[11]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[12]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[13]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[14]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[15]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[16]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[17]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[18]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[19]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[20]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[21]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[22]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[23]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[24]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[25]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[26]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[27]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[28]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[29]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[30]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[31]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[32]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[33]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[34]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[35]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[36]], ncol = cols, nrow = rows))
+
+```
+
+
+## Appendix 2
+### Plots of mantissa, magnitudes, Benford's first digit and last digits for confirmed cases, deaths and cured of daily Covid returns from Scotland regions.
+
+``` {r scotland_plot, include = T, echo = F, fig.height = 14, fig.width = 10}
+# plot
+state_summary <- list()
+k = 0
+graphs_per_plot <- 12
+# we want 12 graphs on each plot
+for (i in seq(0, length(scot_plots) - graphs_per_plot, by = graphs_per_plot)) {
+  k = k + 1
+  state_graphs <- list()
+  for (j in 1:graphs_per_plot) {
+    state_graphs[[j]] <- scot_plots[[i+j]]
+  }
+  state_summary[[k]] <- state_graphs
+}
+# make the plot grid
+cols = 2
+rows = 6
+# the number of plot pages is the number of regions or states
+
+suppressWarnings(wrap_plots(plotlist = state_summary[[1]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[2]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[3]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[4]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[5]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[6]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[7]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[8]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[9]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[10]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[11]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[12]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[13]], ncol = cols, nrow = rows))
+suppressWarnings(wrap_plots(plotlist = state_summary[[14]], ncol = cols, nrow = rows))
+
+```

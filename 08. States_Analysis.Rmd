@@ -1,0 +1,136 @@
+---
+title: "Benford's Project"
+subtitle: "Figs 5,6,8,9,10: Summary Charts"
+author: "Edward Stansfeld"
+date: "January 2022"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = F, tidy = T, include=FALSE)
+library(here)
+library(data.table)
+library(ggplot2)
+library(benford.analysis)
+library(stringr)
+
+set.seed(999)
+repetitions <- 200
+# 
+# source(here("benfords", "distributions.R"))
+# source(here("benfords", "tests.R"))
+# source(here("benfords", "plots.R"))
+
+```
+
+
+## Introduction
+The India data contain 36 sets of regional data, each containing around 500 records, and the Scotland 14 sets of regional data. This paper focuses on the properties of the datasets for confirmed cases, deaths and recoveries. The distributions are plotted for each region and indicative statistics are calculated. 
+
+
+``` {r regional}
+
+theBenford <- readRDS("theBenford.RDS")
+theBenford <- theBenford[region=="", region:=NA][j=region:=zoo::na.locf(region)][1:216,country:="India"][is.na(country), j= country:="Scotland"]
+
+theBenford_prepped <- theBenford[j= .(
+  country, region, dataset=as.factor(dataset), n, range, BREG_output, SSD, MAD,Chi.squared, p, oom_10, oom_5, oom_naive,ES12,mantissa_difference,
+  MAD_conforms=fifelse(Nigrini == "Nonconformity", 0, 1),
+  SSD_conforms=fifelse(Kossovsky == "Non Benford", 0, 1), 
+  Chi.sq_conforms=fifelse(p<0.05, 0, 1),
+  kuiper_conforms=fifelse(kuiper.result=="Rejected", 0, 1),
+  BREG_conforms=fifelse(BREG_verdict!="Accepted" | is.na(BREG_verdict), 0, 1),
+  overB_conforms=fifelse(overBenford.result=="Rejected", 0, 1),  
+  kuiper.p=as.double(str_trim(str_remove_all(kuiper.p, "\\*"))),
+  overBenford.p=as.double(str_trim(str_remove_all(overBenford.p, "\\*")))
+  )][
+    j = overall_score:=MAD_conforms+SSD_conforms+kuiper_conforms+BREG_conforms+overB_conforms
+  ][
+    j=oom_skew:=oom_10/oom_naive
+  ]
+theBenford_fails <- theBenford_prepped[kuiper_conforms!=1 | is.na(kuiper_conforms)]  
+theBenford_passes <- theBenford_prepped[kuiper_conforms==1]  
+theResults <- theBenford[
+  j = .(test, country, region, dataset, range, n, 
+        MAD=fifelse(Nigrini == "Nonconformity", "Rejected", "Accepted"), 
+        SSD=fifelse(Kossovsky == "Non Benford", "Rejected", "Accepted"), 
+        Chi_Squared=fifelse(p>0.05, "Accepted", "Rejected"), 
+        Kuiper=kuiper.result, 
+        overBenford=overBenford.result, 
+        BREG_verdict = fifelse(BREG_verdict == "Conformant", "Accepted", "Rejected"))
+  ]
+long_results <- melt(theResults, id.vars=c("test", "country", "region", "dataset", "range", "n"))
+fig_13_results <- long_results[value == "Accepted",.(count = .N), by=.(test, variable, country, dataset)]
+fig_13_totals <- fig_13_results[, .(count = sum(count)), by = .(test, variable)]
+theKuiper_fails <- theResults[Kuiper!="Accepted" | is.na(Kuiper)]
+Kuiper_long_results <- melt(theKuiper_fails, id.vars=c("test", "country", "region", "dataset", "range", "n"))
+
+```
+
+``` {r correlations_prep}
+library(Hmisc)
+library(corrplot)
+response_variables <- c("n", "range","oom_5", "oom_10","oom_naive", "overall_score", "kuiper.p", "mantissa_difference")
+variables <- c(response_variables, "ES12")
+states.rcorr <- rcorr(as.matrix(theBenford_passes[,j = ..variables]))
+```
+
+``` {r plot_correlation, include = T, echo = F, fig.height = 4}
+corrplot(states.rcorr$r)
+```
+
+
+Conformant data was then encoded with a "1" and non-conformant with a "0" and a decision tree was created using all the data. This is helpful to see the relative importance of the various factors. The data was first split with 80% moved into the training set and 20% to the test set using the caTools package.  The result shows the importance of the geographic area of the state, with the smaller states having higher conformancy at two levels of the tree.  For the larger states, low literacy and an imbalanced sex ratio are associated with lower conformance.  
+
+
+``` {r random_forest_prep}
+library(caret)
+library(randomForest)
+library(rpart)
+library(rpart.plot)
+response_variables <- c("oom_naive", "oom_5", "oom_10", "mantissa_difference", "kuiper_conforms")
+variables <- c(response_variables)
+data <- theBenford_prepped[is.na(kuiper_conforms),kuiper_conforms:=0][, kuiper_conforms:=fifelse(kuiper_conforms==1,TRUE, FALSE)][, kuiper_conforms:=as.factor(kuiper_conforms)][j =..variables]
+sample = caTools::sample.split(data$kuiper_conforms, SplitRatio = .80)
+train = subset(data, sample == TRUE)
+test  = subset(data, sample == FALSE)
+# test <- train <- theBenford[demo_stats, on = "state"][variable == "Deaths"][j =..variables][j = SSD_conforms:=as.factor(SSD_conforms)][j = life_expect:=NULL]
+# decision tree
+dt <- rpart(kuiper_conforms ~ oom_5 + mantissa_difference, data = train,  method = "class", 
+  minsplit = 3, 
+  minbucket = 2, 
+  cp = 0.0244)
+# random forest
+rf <- randomForest(kuiper_conforms ~ oom_5 + mantissa_difference, data=train)
+pred <- predict(rf, newdata=test)
+```
+
+
+``` {r decision_tree_plot, include = T, echo = F} 
+rpart.plot(dt)
+```
+
+
+``` {r pair_plot, include = T, echo = F, fig.height = 3}
+library(ggpubr)
+# ggplot(theBenford_prepped, aes(x = oom_10, y = SSD, col = overall_score)) + geom_point() + 
+#   geom_smooth(method='lm', se = FALSE, fullrange = T) + 
+# #  stat_regline_equation(label.y = log10(3000), aes(label = ..rr.label..),label.x.npc = "centre",) +
+#   # scale_colour_gradient(low = "red", high="blue") +
+#   geom_hline(yintercept= 100, linetype="dashed", color = "blue") + 
+#   geom_hline(yintercept= 25, linetype="dotdash", color = "green") + 
+#   geom_hline(yintercept= 2, linetype="dotted", color = "red") + 
+#   geom_vline(xintercept= 0.05, linetype="dashed", color = "blue") + 
+#   geom_vline(xintercept= 0.01, linetype="dashed", color = "red") + 
+#   scale_x_log10() +
+#   scale_y_log10() + 
+#   facet_wrap(dataset~country)
+
+ggplot(theBenford_passes, aes(x = kuiper.p, y = oom_10, col = oom_5)) + geom_point() + 
+  geom_smooth(method='lm', se = FALSE, fullrange = T) + 
+  stat_regline_equation(label.y = log10(3000), aes(label = ..rr.label..),label.x.npc = "centre",) +
+  # # scale_colour_gradient(low = "red", high="blue") +
+  scale_color_gradient(low = "orange", high = "blue")+
+  facet_wrap(dataset~country)
+  
+```
