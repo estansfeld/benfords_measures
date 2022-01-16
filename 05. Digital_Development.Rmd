@@ -1,0 +1,63 @@
+---
+title: "Benford's Project"
+subtitle: "Figure 11: Digital Development"
+author: "Edward Stansfeld"
+date: "January 2022"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = F, tidy = T, include=FALSE)
+library(here)
+library(data.table)
+library(ggplot2)
+library(benford.analysis)
+library(stringr)
+
+set.seed(999)
+repetitions <- 200
+
+source(here("etl", "load_transform_india_and_scotland.R"))
+source(here("benfords", "distributions.R"))
+source(here("benfords", "tests.R"))
+source(here("benfords", "plots.R"))
+
+```
+
+
+## Introduction
+Digital progression is the property that the extreme ends of natural distributions of data tend to deviate from the Benford's distribution, with the smallest items being more uniform, and the largest being "Benford's extreme" (Kossovsky 2014). Accordingly, the highest and lowest bins by magnitude were plotted.
+
+``` {r digit_progression}
+prog <- list()
+prog[[1]] <- plot_benford_leading(india_daily_cases[i = magnitude_confirmed == 0, j =.(confirmed)]$confirmed, title ="Records from 1 to 10")$plot
+prog[[2]]<- plot_benford_leading(india_daily_cases[i = magnitude_confirmed == 1, j = .(confirmed)]$confirmed, title ="Records from 10 to 100")$plot
+prog[[3]] <- plot_benford_leading(india_daily_cases[i = magnitude_confirmed == 2, j =.(confirmed)]$confirmed, title = "Records from 100 to 1000")$plot
+prog[[4]] <- plot_benford_leading(india_daily_cases[i = magnitude_confirmed == 3, j =.(confirmed)]$confirmed, title ="Records from 1000 to 10000")$plot
+prog[[5]] <- plot_benford_leading(india_daily_cases[i = magnitude_confirmed == 4, j =.(confirmed)]$confirmed, title ="Records from 10000 to 100000")$plot
+```
+
+The plots for confirmed cases do indeed show the expected digital progression, with the low band flatter than Benford's, and the high band more extreme. The plots for deaths are interesting as the low band actually conforms more closely to the expected distribution than the full dataset, which as noted above has a restricted range and has few high values.  This indicates that digital progression would be a useful technique to apply at the state level, with an expectation that Benford's Law applies at the lowest level of magnitude, and that the distribution is more extreme at the next.
+
+``` {r digital_progression_plot, include = T, echo = F, fig.height = 6, fig.width = 10}
+# plot
+library(ggpubr)
+ggarrange(plotlist = prog, ncol = 3, nrow = 2, legend = "none")
+```
+
+
+## Conclusion
+
+The Scotland deaths dataset are deficient for tests of Benfords Law owing to their limited range and preponderance of low values. This causes the distributions to be heavily skewed by the "Benford's extreme" effect.
+
+It was established that the pandemic dataset is expected to follow Benford's Law for natural data, because of the exponential way in which an epidemic spreads. It was also established that there are sufficient records and that they have sufficient range for a Benford's study.
+
+
+
+## References
+Kossovsky, A. E. (2006) ‘Towards A Better Understanding Of The Leading Digits Phenomena’, Statistics Theory. Available at: https://www.semanticscholar.org/paper/Towards-A-Better-Understanding-Of-The-Leading-Kossovsky/b8085fbbc8d3dc4a993d1efa6b8e1646aecc2eeb (Accessed: 20 August 2021).
+
+Kossovsky, A. E. (2015) Benford’s Law: Theory, The General Law Of Relative Quantities, And Forensic Fraud Detection Applications. New Jersey: World Scientific. Available at: https://web-b-ebscohost-com.libezproxy.dundee.ac.uk/ehost/ebookviewer/ebook/ZTAwMHh3d19fODM5NjQ0X19BTg2?sid=0ce4142b-5c35-4f8c-844d-1030e6c91e4f%40pdc-v-sessmgr02&vid=0&format=EK&rid=1 (Accessed: 29 August 2021).
+
+
+

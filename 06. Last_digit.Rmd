@@ -1,0 +1,60 @@
+---
+title: "Benford's Project"
+subtitle: "Figure 12: Last Digit"
+author: "Edward Stansfeld"
+date: "January 2022"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = F, tidy = T, include=FALSE)
+library(here)
+library(data.table)
+library(ggplot2)
+library(benford.analysis)
+library(stringr)
+
+set.seed(999)
+repetitions <- 200
+
+source(here("etl", "load_transform_india_and_scotland.R"))
+source(here("benfords", "distributions.R"))
+source(here("benfords", "tests.R"))
+source(here("benfords", "plots.R"))
+
+```
+
+
+## Introduction
+The last digits are expected to have a uniform distribution, especially as the number of records increases. However, the distribution also depends on the magnitude. For case numbers from 1 to 9, the first order of magnitude, the last digit is the same as the first.  For numbers from 10 to 99, the last two are the same as the first two, and the last digit should have a “second digit” distribution. Therefore the last digit uniformity test only applies to numbers with three or more digits.   
+
+``` {r digit_progression}
+plots <-list()
+# weekly data
+plots[[1]] <- plot_last_one(scotland_confirmed_cases[magnitude_confirmed >1]$confirmed, title = "Scotland Confirmed")
+plots[[2]] <- plot_last_one(scotland_weekly_deaths[i = magnitude_deaths > 1, j =.(deaths)]$deaths, title ="Scotland Deaths")
+plots[[3]]<- plot_last_one(india_daily_cases[i = magnitude_confirmed > 1, j = .(confirmed)]$confirmed, title ="India Confirmed")
+plots[[4]] <- plot_last_one(india_daily_cases[i = magnitude_deaths > 1, j =.(deaths)]$deaths, title = "India Deaths")
+plots[[5]] <- plot_last_one(india_daily_cases[i = magnitude_cured > 1, j =.(cured)]$cured, title ="India Recovered")
+```
+
+The graphs for the last two digits were prepared after excluding numbers below 99. This limits the deaths dataset to fewer than 1,000. 
+
+``` {r last_digits_plot, include = T, echo = F, fig.height = 6, fig.width = 10}
+# plot
+library(ggpubr)
+ggarrange(plotlist = plots, ncol = 3, nrow = 2, legend = "none")
+```
+
+
+## Conclusion
+
+Both distributions are generally uniform as expected for the last digits. Intriguingly, the deaths data has a peak at "8", and a trough at "9". However, the statistics calculated on the distribution do not indicate an issue, and they could arise by chance. 
+
+
+
+## References
+Nigrini, M. (2012) Benford’s Law: Applications for Forensic Accounting, Auditing, and Fraud ... - Mark J. Nigrini - Google Books. Available at: https://books.google.co.uk/books?hl=en&lr=&id=Bh5Vr_I1NZoC&oi=fnd&pg=PP11&ots=qcigiizrOi&sig=Zyv0EV3snhVKH3yOC9z117ieSlI&redir_esc=y#v=onepage&q&f=false (Accessed: 11 August 2021).
+
+
+

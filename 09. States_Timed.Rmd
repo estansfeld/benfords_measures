@@ -1,0 +1,252 @@
+---
+title: "Benford's Project"
+subtitle: "Fig 14: Timing Chart"
+author: "Edward Stansfeld"
+date: "January 2022"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = F, tidy = T, include=FALSE)
+library(here)
+library(data.table)
+library(ggplot2)
+library(benford.analysis)
+library(stringr)
+
+set.seed(999)
+repetitions <- 200
+
+source(here("etl", "load_transform_india_and_scotland.R"))
+source(here("benfords", "distributions.R"))
+source(here("benfords", "tests.R"))
+source(here("benfords", "plots.R"))
+
+```
+
+
+## Introduction
+The India data contain 36 sets of regional data, each containing around 500 records, and the Scotland 14 sets of regional data. This paper focuses on the properties of the datasets for confirmed cases, deaths and recoveries. The distributions are plotted for each region and indicative statistics are calculated. 
+
+
+``` {r regional}
+
+### function for checking the distribution of the mantissae
+library(dplyr)
+
+plots <-list()
+
+theTimings <- data.table(state = character(), 
+                         variable = character(),
+                         MAD = as.numeric(),
+                         BREG = as.numeric(),
+                         overBenford = as.numeric(),
+                         kuiper = as.numeric())
+
+theBenford <- data.table(region = character(), 
+                         dataset = character(),
+                         test = character(),
+                         total = numeric(),
+                         range = numeric(),
+                         mantissa_difference = numeric(),
+                         oom_10 = numeric(),
+                         oom_5 = numeric(),
+                         oom_naive= numeric(),
+                         ES12 = numeric(),
+                         Nigrini = character(), 
+                         MAD = numeric(), 
+                         Kossovsky = character(), 
+                         SSD = numeric(),
+                         Chi.squared = numeric(),
+                         n = integer(),
+                         df = integer(),
+                         p = numeric(),
+                         kuiper.result = character(),
+                         kuiper.p = numeric(),
+                         overBenford.result = character(),
+                         overBenford.p = numeric(),
+                         BREG_verdict = character(),
+                         BREG_output = character(),
+                         BREG_ideal = character(),
+                         BREG_bootstrap_CI = character(), 
+                         BREG_benford_CI = character())
+
+
+for(state_name in 1:nrow(india_states)) {
+  data <- india_daily_cases[india_states[state_name]]
+  identifier <- dplyr::pull(india_states[state_name])
+  
+# summarise daily_cases by order of magnitude
+# scotland_confirmed_range <- scotland_confirmed_cases[j= .(.N), by = .(magnitude_confirmed)]
+# scotland_deaths_range <- scotland_weekly_deaths[j= .(.N), by = .(magnitude_deaths)]
+
+data_confirmed_range <- data[j= .(.N), by = .(magnitude_confirmed)]
+data_deaths_range <- data[j= .(.N), by = .(magnitude_deaths)]
+data_cured_range <- data[j= .(.N), by = .(magnitude_cured)]
+
+  line_confirmed <- ggplot(data[,confirmed:=sum(confirmed), by = .(Date)], aes(x = Date, y = confirmed)) + geom_smooth(span = 0.2, col = "black", method = "loess") + labs(title = identifier, subtitle = "Confirmed Cases") + scale_y_log10()
+  
+  line_deaths <- ggplot(data[,deaths:=sum(deaths), by = .(Date)], aes(x = Date, y = deaths)) + geom_smooth(span = 0.2, col = "black", method = "loess", formula = y ~ x) + labs(subtitle = "Deaths") + scale_y_log10()
+  
+  line_cured <- ggplot(data[,cured:=sum(cured), by = .(Date)], aes(x = Date, y = cured)) + geom_smooth(span = 0.2, col = "black", method = "loess", formula = y ~ x) + labs(subtitle="Recovered") + scale_y_log10()
+  
+  mantissa_confirmed <- plot_mantissae(data$confirmed, title = "")
+  mantissa_deaths <- plot_mantissae(data$deaths, title = "") 
+  mantissa_cured <- plot_mantissae(data$cured, title = "") 
+  
+  # graph cases by order of magnitude
+  magnitude_confirmed <- ggplot(data_confirmed_range[magnitude_confirmed>=0],aes(x= as.factor(magnitude_confirmed), y = N)) + geom_col() + xlab("Order of Magnitude") + ylab("Records") + ggtitle("")
+  
+  magnitude_deaths <- ggplot(data_deaths_range[magnitude_deaths>=0],  aes(x= as.factor(magnitude_deaths), y = N)) + geom_col() + xlab("Order of Magnitude") + ylab("Records") + ggtitle("")
+  
+  magnitude_cured <- ggplot(data_cured_range[magnitude_cured>=0],  aes(x= as.factor(magnitude_cured), y = N)) + geom_col() + xlab("Order of Magnitude") + ylab("Records") + ggtitle("")
+  
+  benford_confirmed <- plot_benford_leading_timed(data$confirmed, 
+    test.type = "First Digit", 
+    subtitle = pull(india_states[state_name]),
+    variable = "Confirmed")
+  
+  benford_deaths <- plot_benford_leading_timed(data$deaths, 
+    test.type = "First Digit", 
+    variable = "Deaths")
+   
+  benford_cured <- plot_benford_leading_timed(data$cured, 
+    test.type = "First Digit", 
+    variable = "Cured")
+  
+  benford_first_two_confirmed <- plot_benford_leading_timed(data$confirmed, 
+    test.type = "First-Two Digits", 
+    variable = "Confirmed")
+  
+  benford_first_two_deaths <- plot_benford_leading_timed(data$deaths, 
+    test.type = "First-Two Digits", 
+    variable = "Deaths")
+   
+  benford_first_two_cured <- plot_benford_leading_timed(data$cured, 
+    test.type = "First-Two Digits", 
+    variable = "Cured")
+  
+  last_one_confirmed <- plot_last_one(data[magnitude_confirmed >1]$confirmed, variable = "Confirmed",magnitude_range = max(data$magnitude_confirmed, na.rm = T), subtitle = "")
+  
+  last_one_deaths <- plot_last_one(data[magnitude_deaths >1]$deaths, variable = "Deaths", magnitude_range = max(data$magnitude_deaths, na.rm = T), subtitle = "")
+  
+  last_one_cured <- plot_last_one(data[magnitude_cured >1]$cured, variable = "Recovered",magnitude_range = max(data$magnitude_cured, na.rm = T),subtitle = "")
+  
+
+  
+  nplots <- 18
+  plots[[(nplots * (state_name - 1)) + 1]] <- line_confirmed
+  plots[[(nplots * (state_name - 1)) + 2]] <- line_deaths
+  plots[[(nplots * (state_name - 1)) + 3]] <- line_cured
+  plots[[(nplots * (state_name - 1)) + 4]] <- mantissa_confirmed
+  plots[[(nplots * (state_name - 1)) + 5]] <- mantissa_deaths
+  plots[[(nplots * (state_name - 1)) + 6]] <- mantissa_cured
+  plots[[(nplots * (state_name - 1)) + 7]] <- magnitude_confirmed
+  plots[[(nplots * (state_name - 1)) + 8]] <- magnitude_deaths
+  plots[[(nplots * (state_name - 1)) + 9]] <- magnitude_cured 
+  plots[[(nplots * (state_name - 1)) + 10]] <- benford_confirmed$plot
+  plots[[(nplots * (state_name - 1)) + 11]] <- benford_deaths$plot
+  plots[[(nplots * (state_name - 1)) + 12]] <- benford_cured$plot
+  plots[[(nplots * (state_name - 1)) + 13]] <- benford_first_two_confirmed$plot
+  plots[[(nplots * (state_name - 1)) + 14]] <- benford_first_two_deaths$plot
+  plots[[(nplots * (state_name - 1)) + 15]] <- benford_first_two_cured$plot
+  plots[[(nplots * (state_name - 1)) + 16]] <- last_one_confirmed
+  plots[[(nplots * (state_name - 1)) + 17]] <- last_one_deaths
+  plots[[(nplots * (state_name - 1)) + 18]] <- last_one_cured
+  
+  theBenford <- rbindlist(list(theBenford, benford_confirmed$stats, benford_deaths$stats, benford_cured$stats, benford_first_two_confirmed$stats, benford_first_two_deaths$stats, benford_first_two_cured$stats))
+  
+  theTimings <- rbindlist(list(theTimings, benford_confirmed$timing,benford_deaths$timing, benford_cured$timing, benford_first_two_confirmed$timing, benford_first_two_deaths$timing, benford_first_two_cured$timing))
+}
+
+scot_plots <-list()
+
+for(region in 1:nrow(scotland_state)) {
+  identifier <- pull(scotland_state[region])
+  deaths <- scotland_weekly_deaths[region == identifier]
+  tests <- MIS_pos_test[region == identifier]
+  
+  data_confirmed_range <- tests[j= .(.N), by = .(magnitude_positive)]
+  data_deaths_range <- deaths[j= .(.N), by = .(magnitude_deaths)]
+
+  line_confirmed <- ggplot(tests[,positive:=sum(positive), by = .(date)], aes(x = date, y = positive)) + geom_smooth(span = 0.2, col = "black", method = "loess") + labs(title = identifier, subtitle = "Confirmed Cases") + scale_y_log10()
+  
+  line_deaths <- ggplot(deaths[,deaths:=sum(deaths), by = .(Date)], aes(x = Date, y = deaths)) + geom_smooth(span = 0.2, col = "black", method = "loess") + labs(subtitle = "Deaths") + scale_y_log10()
+  
+  mantissa_confirmed <- plot_mantissae(tests$positive, title = "")
+  mantissa_deaths <- plot_mantissae(deaths$deaths, title = "") 
+
+  # graph cases by order of magnitude
+  magnitude_confirmed <- ggplot(data_confirmed_range[magnitude_positive>=0], aes(x= as.factor(magnitude_positive), y = N)) + geom_col() + xlab("Order of Magnitude") + ylab("Records")
+  
+  magnitude_deaths <- ggplot(data_deaths_range[magnitude_deaths>=0], aes(x= as.factor(magnitude_deaths), y = N)) + geom_col() + xlab("Order of Magnitude") + ylab("Records")
+  
+  benford_confirmed <- plot_benford_leading_timed(tests$positive, 
+                                    test.type = "First Digit", 
+                                    subtitle = identifier,
+                                    variable = "Confirmed")
+  
+  benford_deaths <- plot_benford_leading_timed(deaths$deaths, 
+                                 test.type = "First Digit", 
+                                 subtitle = identifier,
+                                 variable = "Deaths")
+   
+  benford_first_two_confirmed <- plot_benford_leading_timed(tests$positive, 
+    test.type = "First-Two Digits", 
+    subtitle = "",
+    variable = "Confirmed")
+  
+  benford_first_two_deaths <- plot_benford_leading_timed(deaths$deaths, 
+                                           test.type = "First-Two Digits", 
+                                           subtitle = "",
+                                           variable = "Deaths")
+  
+  last_one_confirmed <- plot_last_one(tests[magnitude_positive >1]$positive, variable = "Confirmed", magnitude_range = max(tests$magnitude_positive, na.rm = T),subtitle = "")
+  
+  last_one_deaths <- plot_last_one(deaths[magnitude_deaths >1]$deaths, variable = "Deaths", magnitude_range = max(deaths$magnitude_deaths, na.rm = T), subtitle = "")
+  
+
+  
+  scot_plots[[(12 * (region - 1)) + 1]] <- line_confirmed
+  scot_plots[[(12 * (region - 1)) + 2]] <- line_deaths
+  scot_plots[[(12 * (region - 1)) + 3]] <- mantissa_confirmed
+  scot_plots[[(12 * (region - 1)) + 4]] <- mantissa_deaths
+  scot_plots[[(12 * (region - 1)) + 5]] <- magnitude_confirmed
+  scot_plots[[(12 * (region - 1)) + 6]] <- magnitude_deaths
+  scot_plots[[(12 * (region - 1)) + 7]] <- benford_confirmed$plot
+  scot_plots[[(12 * (region - 1)) + 8]] <- benford_deaths$plot
+  scot_plots[[(12 * (region - 1)) + 9]] <- benford_first_two_confirmed$plot
+  scot_plots[[(12 * (region - 1)) + 10]] <- benford_first_two_deaths$plot
+  scot_plots[[(12 * (region - 1)) + 11]] <- last_one_confirmed
+  scot_plots[[(12 * (region - 1)) + 12]] <- last_one_deaths
+
+  theBenford <- rbindlist(list(theBenford, benford_confirmed$stats, benford_deaths$stats, benford_first_two_confirmed$stats, benford_first_two_deaths$stats))
+  theTimings <- rbindlist(list(theTimings, benford_confirmed$timing, benford_deaths$timing, benford_first_two_confirmed$timing, benford_first_two_deaths$timing))
+  
+}
+  
+saveRDS(theTimings, file="theTimings.RDS")
+
+theTimings <- readRDS("theTimings.RDS")
+setnames(theTimings, "MAD", "benford.analysis")
+theTimings<-theTimings[BREG==0, BREG:=NA][overBenford==0, overBenford:=NA][kuiper==0, kuiper:=NA][benford.analysis==0, benford.analysis:=NA]
+theTimings_long <- melt(theTimings, variable.name  ="Test", value.name = "Time (seconds)")
+theTimings_long <- theTimings_long[!is.na(`Time (seconds)`)]
+ggplot(theTimings_long, aes(x=Test, y = `Time (seconds)`)) + geom_boxplot() + coord_cartesian(ylim = c(0, 5))
+
+```
+
+## Results
+
+As shown in Appendix 1, the state results have a wide variety, though most are clearly conformant over the leading digits, especially among the confirmed and cured cases. There are some notable exceptions; Jammu and Kashmir have a distribution that has uniform features (but passes Kossovsky's test) and Tamil Nadu and Uttarakhand have a disproportionate number of "4"s and 5"s. West Bengal has a strange two-layered uniform distribution. 
+
+The deaths data has a more limited range and there is a tendency for the Benford's extreme distribution to appear. The Benford's extreme distribution is associated with digital progression (Kossovsky 2019).  In digital progression, when the logs of sampled data covering several orders of magnitude are binned, they should approximate to a normal distribution. The rising end of the distribution tends to digital equality, whereas the falling end tends to Benford's extreme. In the state deaths data, many of the magnitude plots have a sharply right-skewed distribution, and this is a predictor that the Benford's distribution will be extreme. 
+
+The last digit results also have a wide variety, and most of them look conformant. The deaths plots are much affected by the limited range and in several cases, the last digit distributions are more like first digit distributions. This would seem to be a digital progression effect, with the high end effect dominant over the low end. 
+
+
+## Conclusion
+The state-level data has a wide range of results, with most passing at least one of the tests for Benford's conformance. There are also some that appear anomalous, in particular West Bengal, Uttarkhand and Tamil Nadu, which performed strangely in the leading digit tests. Visual inspection showed that some of the deaths graphs have the "Benford's extreme" profile of more low digits than expected. It is particularly common with datasets that have a limited range of just one or two orders of magnitude. A Benford's extreme profile is associated with digital progression and is caused by a reducing number of data points as the log of the data increases.
+
+
+

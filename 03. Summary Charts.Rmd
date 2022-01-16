@@ -1,0 +1,82 @@
+---
+title: "Benford's Project"
+subtitle: "Figs 4,7: Summary Charts"
+author: "Edward Stansfeld"
+date: "January 2022"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = F, tidy = T, include=FALSE)
+library(here)
+library(data.table)
+library(ggplot2)
+library(benford.analysis)
+library(stringr)
+
+set.seed(999)
+repetitions <- 200
+
+source(here("etl", "load_transform_india_and_scotland.R"))
+source(here("benfords", "distributions.R"))
+source(here("benfords", "tests.R"))
+source(here("benfords", "plots.R"))
+
+```
+
+
+## Introduction
+Nigrini suggests that Benford's studies start with the Mantissa Arc test.  In this test, the logarithms in base 10 of the data points are calculated. The mantissae are the part of the logarithm to the right of the decimal place. Benford's Law can be defined as "The law of probability of the occurrence of numbers is such that all mantissae of their logarithms are equally probable" (Newcomb 1881), so the mantissae of a dataset, arranged in order of size, that follows Benford's Law should plot along a straight diagonal line.
+
+A further requirement for a Benford's analysis is that the data should cover at least two orders of magnitude. As Kossovsky (2014) notes, the data at the extreme ends of the distribution produce different Benford's distributions, with the smallest exhibiting a tendency to be uniform, while the largest can be characterised as Benford's extreme. Accordingly, the number of data items in each order of magnitude were plotted as a test of suitability.  
+
+
+## Results
+### Is the data suitable for a Benford's analysis?
+``` {r mantissae}
+
+### function for checking the distribution of the mantissae
+library(ggpubr)
+
+# summarise daily_cases by order of magnitude
+scotland_confirmed_range <- scotland_confirmed_cases[j= .(.N), by = .(magnitude_confirmed)]
+scotland_deaths_range <- scotland_weekly_deaths[j= .(.N), by = .(magnitude_deaths)]
+
+india_confirmed_range <- india_daily_cases[j= .(.N), by = .(magnitude_confirmed)]
+india_deaths_range <- india_daily_cases[j= .(.N), by = .(magnitude_deaths)]
+india_cured_range <- india_daily_cases[j= .(.N), by = .(magnitude_cured)]
+# 
+plots <-list()
+plots[[1]] <- ggplot(scotland_confirmed_cases, aes(x = date, y = confirmed)) + geom_smooth(span = 0.2, col = "black") + ggtitle("Scotland daily cases") +scale_y_log10()
+plots[[2]] <- ggplot(scotland_confirmed_range, aes(x= as.factor(magnitude_confirmed), y = N)) + geom_col() + xlab("Order of Magnitude") + ylab("Records") + ggtitle("")
+plots[[3]] <- plot_mantissae(scotland_confirmed_cases[confirmed >= 10]$confirmed, "")
+plots[[4]] <- ggplot(scotland_weekly_deaths[,deaths:=sum(deaths), by = .(Date)], aes(x = Date, y = deaths)) + geom_line() +ggtitle("Scotland weekly deaths")+scale_y_log10()
+plots[[5]] <- ggplot(scotland_deaths_range, aes(x= as.factor(magnitude_deaths), y = N)) + geom_col() + xlab("Order of Magnitude") + ylab("Records") + ggtitle("")
+
+plots[[6]] <- plot_mantissae(scotland_weekly_deaths[deaths >= 10]$deaths, "")
+plots[[7]] <- ggplot(india_daily_cases[,confirmed:=sum(confirmed), by = .(Date)], aes(x = Date, y = confirmed)) + geom_smooth(span = 0.2, col = "black") +ggtitle("India daily confirmed cases")+scale_y_log10()
+plots[[8]] <- ggplot(india_confirmed_range, aes(x= as.factor(magnitude_confirmed), y = N)) + geom_col() + xlab("Order of Magnitude") + ylab("Records") + ggtitle("")
+plots[[9]] <- plot_mantissae(india_daily_cases[confirmed >= 10]$confirmed, "")
+plots[[10]] <- ggplot(india_daily_cases[,deaths:=sum(deaths), by = .(Date)], aes(x = Date, y = deaths)) + geom_smooth(span = 0.2, col = "black") +ggtitle("India daily deaths")+scale_y_log10()
+plots[[11]] <- ggplot(india_deaths_range, aes(x= as.factor(magnitude_deaths), y = N)) + geom_col() + xlab("Order of Magnitude") + ylab("Records") + ggtitle("")
+plots[[12]] <- plot_mantissae(india_daily_cases[deaths >= 10]$deaths, "")
+plots[[13]] <- ggplot(india_daily_cases[,cured:=sum(cured), by = .(Date)], aes(x = Date, y = cured)) + geom_smooth(span = 0.2, col = "black") +ggtitle("India daily recovered")+scale_y_log10()
+plots[[14]] <- ggplot(india_cured_range, aes(x= as.factor(magnitude_cured), y = N)) + geom_col() + xlab("Order of Magnitude") + ylab("Records") + ggtitle("")
+plots[[15]] <- plot_mantissae(india_daily_cases[cured >= 10]$cured, "")
+```
+
+The mantissae are graphed below for the daily case data and the weekly deaths data. The line for the daily cases is close to the ideal and indicates broad suitability. The mantissa line for deaths is stepped and bowed and indicates that the number of records or range of data is deficient.  This will have a bearing on two digit tests but the first digit should be OK.
+
+``` {r mantissae_plot1, include = T, echo = F, fig.height = 12, fig.width = 10}
+# plot
+ggarrange(plotlist = list(plots[[1]], plots[[2]], plots[[3]], plots[[4]], plots[[5]], plots[[6]], plots[[7]], plots[[8]], plots[[9]], plots[[10]], plots[[11]], plots[[12]], plots[[13]], plots[[14]], plots[[15]]), ncol = 3, nrow = 5, legend = "none", labels = c("", ""))
+```
+
+
+## Conclusion
+
+The Cases and Recovered datasets have three or more orders of magnitude and look sufficient.  The deaths datasets are borderline with very few records in the third order. This will affect the performance of the traditional metrics of Benford's Law.
+
+
+## References
+Nigrini, M. (2012) Benford’s Law: Applications for Forensic Accounting, Auditing, and Fraud ... - Mark J. Nigrini - Google Books. Available at: https://books.google.co.uk/books?hl=en&lr=&id=Bh5Vr_I1NZoC&oi=fnd&pg=PP11&ots=qcigiizrOi&sig=Zyv0EV3snhVKH3yOC9z117ieSlI&redir_esc=y#v=onepage&q&f=false (Accessed: 11 August 2021).

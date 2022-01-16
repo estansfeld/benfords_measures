@@ -1,0 +1,202 @@
+---
+title: "Benford's Project"
+subtitle: "Figs 5,6,8,9,10: Summary Charts"
+author: "Edward Stansfeld"
+date: "January 2022"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = F, tidy = T, include=FALSE)
+library(here)
+library(data.table)
+library(ggplot2)
+library(benford.analysis)
+library(stringr)
+
+set.seed(999)
+repetitions <- 200
+
+source(here("etl", "load_transform_india_and_scotland.R"))
+source(here("benfords", "distributions.R"))
+source(here("benfords", "tests.R"))
+source(here("benfords", "plots.R"))
+
+```
+
+
+## Introduction
+After the suitability of the data for Benford's tests is established, Nigrini suggests that first and second digit tests should be run to provide an overview, and if there are more than about 300 records, the first two digits test should be used for the actual analysis (while allowing for more deviation from the expected values). The R benfords.analysis package (Cinelli 2019) contains a suite of fast Benfords tests and some statistical analysis, and is based on the approach of Nigrini 2012.  This algorithm was applied to the daily case data and the daily death data and its results are shown in Appendix 1. The algorithm was supplemented with additional functions to extract and plot the second digit and calculate statistics.
+
+
+## Results
+### Does the data follow Benford's Law?
+The Benford's plots for the first, second and first-two digits are shown below. Removing records below 10 affected the mantissa curve and it is expected there will be a similar effect here. Similarly, the deaths data are not expected to behave in the classic manner due to its restricted range.
+
+``` {r basic_benfords}
+
+plots <-list()
+########
+# confirmed first digit
+scotland_confirmed <- scotland_confirmed_cases[confirmed!=0]$confirmed
+scotland_first <- plot_benford_leading(scotland_confirmed, test.type = "First Digit", title = "Scotland Daily Cases", subtitle = "First digit", variable = "Scotland confirmed")
+plots[[1]] <- scotland_first$plot
+
+# confirmed second digit
+scotland_confirmed_10 <- scotland_confirmed[scotland_confirmed>=10]
+scotland_second <- plot_benford_second(
+  data.table(second_digit = benford(scotland_confirmed_10,2)$data$data.digits %% 10)[
+    j = .(data.dist=.N), by = .(second_digit)
+  ][
+    order(second_digit)
+  ][j = data.prop:=data.dist / sum(data.dist)
+  ], subtitle = "Second Digit")
+plots[[2]] <- scotland_second
+
+# confirmed first two digits (removed recs under 10)
+scotland_firsttwo <- plot_benford_leading(scotland_confirmed_10, test.type = "First-Two Digits", subtitle = "First-Two digits", variable = "")
+plots[[3]] <- scotland_firsttwo$plot
+
+########
+scotland_deaths <- scotland_weekly_deaths[deaths != 0]$deaths
+scotland_deaths_first <- plot_benford_leading(scotland_deaths, test.type = "First Digit", title = "Scotland Deaths", subtitle = "First digit", variable = "Scotland deaths")
+plots[[4]] <- scotland_deaths_first$plot
+
+# deaths second digit
+scotland_deaths_10 <- scotland_deaths[scotland_deaths>=10]
+scotland_deaths_second <- plot_benford_second(
+  data.table(second_digit = benford(scotland_deaths_10,2)$data$data.digits %% 10)[
+    j = .(data.dist=.N), by = .(second_digit)
+  ][
+    order(second_digit)
+  ][j = data.prop:=data.dist / sum(data.dist)
+  ], subtitle = "Second Digit")
+plots[[5]] <- scotland_deaths_second
+
+# deaths first two digits  (removed recs under 10)
+scotland_deaths_firsttwo <- plot_benford_leading(scotland_deaths_10, test.type = "First-Two Digits", subtitle = "First-Two digits", variable = "")
+plots[[6]] <- scotland_deaths_firsttwo$plot
+########
+india_confirmed <- india_daily_cases[confirmed != 0]$confirmed
+india_first <- plot_benford_leading(india_confirmed, test.type = "First Digit", title = "India Confirmed", subtitle = "First digit", variable = "India confirmed")
+plots[[7]] <- india_first$plot
+
+# confirmed second digit
+india_confirmed_10 <- india_confirmed[india_confirmed>=10]
+india_second <- plot_benford_second(
+  data.table(second_digit = benford(india_confirmed_10,2)$data$data.digits %% 10)[
+    j = .(data.dist=.N), by = .(second_digit)
+  ][
+    order(second_digit)
+  ][j = data.prop:=data.dist / sum(data.dist)
+  ], subtitle = "Second Digit")
+plots[[8]] <-  india_second
+
+# confirmed first two digits  (removed recs under 10)
+india_firsttwo <- plot_benford_leading(india_confirmed_10, test.type = "First-Two Digits", subtitle = "First-Two digits", variable = "")
+plots[[9]] <- india_firsttwo$plot
+
+########
+# deaths first digits  (removed recs under 10)
+india_deaths <- india_daily_cases[deaths != 0]$deaths
+india_deaths_first <- plot_benford_leading(india_deaths, test.type = "First Digit", title = "India Deaths", subtitle = "First digit", variable = "India deaths")
+plots[[10]] <- india_deaths_first$plot
+
+# deaths second digit
+india_deaths_10 <- india_deaths[india_deaths>=10]
+india_deaths_second <- plot_benford_second(
+  data.table(second_digit = benford(india_deaths_10,2)$data$data.digits %% 10)[
+    j = .(data.dist=.N), by = .(second_digit)
+  ][
+    order(second_digit)
+  ][j = data.prop:=data.dist / sum(data.dist)
+  ], subtitle = "Second Digit")
+plots[[11]] <- india_deaths_second
+
+# deaths first two digits  (removed recs under 10)
+india_deaths_firsttwo <- plot_benford_leading(india_deaths_10, test.type = "First-Two Digits", subtitle = "First-Two digits", variable = "")
+plots[[12]] <- india_deaths_firsttwo$plot
+
+########
+india_recovered <- india_daily_cases[cured != 0]$cured
+india_recovered_first <- plot_benford_leading(india_recovered, test.type = "First Digit", title = "India Recovered", subtitle = "First digit", variable = "India recovered")
+plots[[13]] <- india_recovered_first$plot
+
+# recovered second digit
+india_recovered_10 <- india_recovered[india_recovered>=10]
+india_recovered_second <- plot_benford_second(
+  data.table(second_digit = benford(india_recovered_10,2)$data$data.digits %% 10)[
+    j = .(data.dist=.N), by = .(second_digit)
+  ][
+    order(second_digit)
+  ][j = data.prop:=data.dist / sum(data.dist)
+  ], subtitle = "Second Digit")
+plots[[14]] <- india_recovered_second
+
+# recovered first two digits  (removed recs under 10)
+india_recovered_firsttwo <- plot_benford_leading(india_recovered, test.type = "First-Two Digits", subtitle = "First-Two digits", variable = "")
+plots[[15]] <- india_recovered_firsttwo$plot
+```
+
+``` {r basic_benfords_plot, include = T, echo = F, fig.height = 12, fig.width = 10}
+# plot
+library(ggpubr)
+ggarrange(plotlist = plots, ncol = 3,nrow = 5, legend = "none")
+```
+
+The plots show marked Benford's-like behaviour, with steep frequency curves descending from the lowest digit to the highest. The deaths curves have steeper descents with a higher ratio of 1's than the classical Benford's distribution. This is known as "Benford's extreme" and is associated with a limited range of orders of magnitude.
+
+
+## Summary statistics
+
+``` {r summary_stats}
+theBenford <- data.table(region = character(), 
+                         dataset = character(),
+                         test = character(),
+                         total = numeric(),
+                         range = numeric(),
+                         mantissa_difference = numeric(),
+                         oom_10 = numeric(),
+                         oom_5 = numeric(),
+                         oom_naive= numeric(),
+                         ES12 = numeric(),
+                         Nigrini = character(), 
+                         MAD = numeric(), 
+                         Kossovsky = character(), 
+                         SSD = numeric(),
+                         Chi.squared = numeric(),
+                         n = integer(),
+                         df = integer(),
+                         p = numeric(),
+                         kuiper.result = character(),
+                         kuiper.p = numeric(),
+                         overBenford.result = character(),
+                         overBenford.p = numeric(),
+                         BREG_verdict = character(),
+                         BREG_output = character(),
+                         BREG_ideal = character(),
+                         BREG_bootstrap_CI = character(), 
+                         BREG_benford_CI = character())
+
+  theBenford <- rbindlist(list(theBenford, scotland_first$stats, scotland_firsttwo$stats,
+                               scotland_deaths_first$stats, scotland_deaths_firsttwo$stats,
+                               india_first$stats, india_firsttwo$stats,
+                               india_deaths_first$stats, india_deaths_firsttwo$stats,
+                               india_recovered_first$stats, india_recovered_firsttwo$stats))
+
+  theBenford_summary <- theBenford[j=.(Dataset=dataset, Test = region, Records = format(n, big.mark = ","), MAD = round(MAD,3), SSD = round(SSD,3), Chi.squared, overBenford = overBenford.p, BREG = BREG_verdict, Kuiper=kuiper.p)]
+```
+
+``` {r plot_table, include = T, echo = FALSE, results = 'asis'} 
+library(knitr)
+kable(theBenford_summary, caption="STATISTICAL SUMMARY FOR SCOTLAND AND INDIA AGGREGATE DATA")
+
+```
+## Conclusion
+By eye, these datasets are conformant with Benford's Law, despite some of the calculated measures rejecting conformance.
+
+
+## References
+Cinelli, C. (2019) benford.analysis: Tools that make it easier to use Benford’s law for data validation and forensic analytics., GitHub. Available at: https://github.com/carloscinelli/benford.analysis (Accessed: 23 October 2021).
+
+Nigrini, M. (2012) Benford’s Law: Applications for Forensic Accounting, Auditing, and Fraud ... - Mark J. Nigrini - Google Books. Available at: https://books.google.co.uk/books?hl=en&lr=&id=Bh5Vr_I1NZoC&oi=fnd&pg=PP11&ots=qcigiizrOi&sig=Zyv0EV3snhVKH3yOC9z117ieSlI&redir_esc=y#v=onepage&q&f=false (Accessed: 11 August 2021).
